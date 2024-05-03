@@ -1,0 +1,5 @@
+is_global = true
+build_property.RootNamespace = feiyun0112.SemanticKernel.Connectors.OnnxRuntimeGenAI
+build_property.ProjectDir = D:\SemanticKernel.Connectors.OnnxRuntimeGenAI\
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
