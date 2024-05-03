@@ -48,7 +48,7 @@ await foreach (string text in kernel.InvokePromptStreamingAsync<string>(prompt,
 
 ### 先决条件
 
-ONNX models, for example `Phi-3 Mini-4K-Instruct`
+你需要下载所需的ONNX模型，例如 `Phi-3 Mini-4K-Instruct
 
 ````
 git lfs install
@@ -58,7 +58,7 @@ git clone https://hf-mirror.com/microsoft/Phi-3-mini-4k-instruct-onnx
 
 ### 示例代码
 
-创建新的控制台应用并添加 Nuget 包:
+创建新的控制台应用，并根据你的硬件配置选择合适的Nuget包:
 
 ```
 -- for CPU
@@ -68,7 +68,7 @@ feiyun0112.SemanticKernel.Connectors.OnnxRuntimeGenAI.CPU
 feiyun0112.SemanticKernel.Connectors.OnnxRuntimeGenAI.CUDA
 ```
 
-然后将Program.cs更改为：
+然后，只需几行代码，你就可以构建Kernel，并开始生成聊天内容:
 
 ````
 Kernel kernel = Kernel.CreateBuilder()
