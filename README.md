@@ -44,6 +44,14 @@ await foreach (string text in kernel.InvokePromptStreamingAsync<string>(prompt,
 
 ![](demo.png)
 
+## Test Sample Projects
+
+| Project | Description | Location |
+| ------------ | ----------- | -------- |
+| Labs_sk01 | This is a sample project that uses a local phi3 model to ask a question. The project uses Semantic Kernel to load a local Phi-3 model and implement a console chat. | .\tests\Labs_sk01\ |
+| Labs_sk02 | The project uses Semantic Kernel to load a local Phi-3 Vision model and analyzes and describes an image. | .\tests\Labs_sk02\ |
+
+
 ## 使用说明
 
 ### 先决条件
