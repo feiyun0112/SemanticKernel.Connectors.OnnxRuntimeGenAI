@@ -2,8 +2,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +14,7 @@ using Microsoft.ML.OnnxRuntimeGenAI;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Services;
+using philabs.SemanticKernel.Connectors.OnnxRuntimeGenAI.Models;
 
 namespace feiyun0112.SemanticKernel.Connectors.OnnxRuntimeGenAI;
 
@@ -22,7 +25,8 @@ public sealed class OnnxRuntimeGenAIChatCompletionService : IChatCompletionServi
 {
     private readonly Model _model;
     private readonly Tokenizer _tokenizer;
-
+    private readonly MultiModalProcessor _processor;
+    private readonly TokenizerStream _tokenizerStream;
     private Dictionary<string, object?> AttributesInternal { get; } = new();
 
     /// <summary>
@@ -36,6 +40,12 @@ public sealed class OnnxRuntimeGenAIChatCompletionService : IChatCompletionServi
     {
         _model = new Model(modelPath);
         _tokenizer = new Tokenizer(_model);
+
+        if (modelPath.Contains("vision"))
+        {
+            _processor = new MultiModalProcessor(_model);
+            _tokenizerStream = _processor.CreateStream();
+        }
 
         this.AttributesInternal.Add(AIServiceExtensions.ModelIdKey, _tokenizer);
     }
@@ -74,42 +84,104 @@ public sealed class OnnxRuntimeGenAIChatCompletionService : IChatCompletionServi
     {
         OnnxRuntimeGenAIPromptExecutionSettings onnxRuntimeGenAIPromptExecutionSettings = OnnxRuntimeGenAIPromptExecutionSettings.FromExecutionSettings(executionSettings);
 
-        var prompt = GetPrompt(chatHistory, onnxRuntimeGenAIPromptExecutionSettings);
-        var tokens = _tokenizer.Encode(prompt);
+        var promptResult = GetPrompt(chatHistory, onnxRuntimeGenAIPromptExecutionSettings);
+
+        Generator generator;
+        // no images attached
+        //if (!promptResult.ImageFound)
+        //{
+        //    var tokens = _tokenizer.Encode(promptResult.Prompt);
+        //    var generatorParams = new GeneratorParams(_model);
+        //    ApplyPromptExecutionSettings(generatorParams, onnxRuntimeGenAIPromptExecutionSettings);
+        //    generatorParams.SetInputSequences(tokens);
+
+        //    generator = new Generator(_model, generatorParams);
+        //}
+        //else
+        //{
+        //    var img = Images.Load(promptResult.ImagePath);
+        //    var inputTensors = _processor.ProcessImages(promptResult.Prompt, img);
+        //    var generatorParams = new GeneratorParams(_model);
+        //    ApplyPromptExecutionSettings(generatorParams, onnxRuntimeGenAIPromptExecutionSettings);
+        //    generatorParams.SetSearchOption("max_length", 3072);
+        //    generatorParams.SetInputs(inputTensors);
+        //    generator = new Generator(_model, generatorParams);
+        //}
 
         var generatorParams = new GeneratorParams(_model);
         ApplyPromptExecutionSettings(generatorParams, onnxRuntimeGenAIPromptExecutionSettings);
-        generatorParams.SetInputSequences(tokens);
 
-        var generator = new Generator(_model, generatorParams);
-
-        while (!generator.IsDone())
+        if (!promptResult.ImageFound)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            yield return await Task.Run(() =>
-            {
-                generator.ComputeLogits();
-                generator.GenerateNextToken();
-
-                var outputTokens = generator.GetSequence(0);
-                var newToken = outputTokens.Slice(outputTokens.Length - 1, 1);
-                var output = _tokenizer.Decode(newToken);
-                return output;
-            }, cancellationToken);
+            var tokens = _tokenizer.Encode(promptResult.Prompt);
+            generatorParams.SetInputSequences(tokens);
         }
+        else
+        {
+            var img = Images.Load(promptResult.ImagePath);
+            var inputTensors = _processor.ProcessImages(promptResult.Prompt, img);
+            generatorParams.SetSearchOption("max_length", 3072);
+            generatorParams.SetInputs(inputTensors);
+        }
+
+        generator = new Generator(_model, generatorParams);
+
+
+        if (generator is not null)
+            while (!generator.IsDone())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                yield return await Task.Run(() =>
+                {
+                    generator.ComputeLogits();
+                    generator.GenerateNextToken();
+
+                    var outputTokens = generator.GetSequence(0);
+                    var newToken = outputTokens.Slice(outputTokens.Length - 1, 1);
+                    var output = _tokenizer.Decode(newToken);
+                    return output;
+                }, cancellationToken);
+            }
+
     }
 
-    private string GetPrompt(ChatHistory chatHistory, OnnxRuntimeGenAIPromptExecutionSettings onnxRuntimeGenAIPromptExecutionSettings)
+    private PromptBuilderResult GetPrompt(ChatHistory chatHistory, OnnxRuntimeGenAIPromptExecutionSettings onnxRuntimeGenAIPromptExecutionSettings)
     {
+        var result = new PromptBuilderResult();
         var promptBuilder = new StringBuilder();
         foreach (var message in chatHistory)
         {
             promptBuilder.Append($"<|{message.Role}|>\n{message.Content}");
+
+            // process sub items
+            foreach (var item in message.Items)
+            {
+                if (item is ImageContent imageContent)
+                {
+                    result.ImageFound = true;
+                    promptBuilder.Append($"<|image_1|>");
+
+                    var imageItem = item as ImageContent;
+
+                    if (imageItem?.Data != null)
+                    {
+                        result.ImageBytes = imageItem.Data.Value.ToArray();
+                    }
+                    else if (imageItem?.Uri != null)
+                    {
+                        result.Uri = imageItem.Uri;
+                    }
+                    break;
+                }
+            }
+
         }
         promptBuilder.Append($"<|end|>\n<|assistant|>");
 
-        return promptBuilder.ToString();
+        result.Prompt = promptBuilder.ToString();
+
+        return result;
     }
 
     private void ApplyPromptExecutionSettings(GeneratorParams generatorParams, OnnxRuntimeGenAIPromptExecutionSettings onnxRuntimeGenAIPromptExecutionSettings)
